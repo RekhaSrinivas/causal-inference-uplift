@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Causal Inference Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #f8f9fb; --surface: #ffffff; --border: #e5e7eb;
+    --text: #111827; --muted: #6b7280; --accent: #3b82f6;
+    --green: #10b981; --amber: #f59e0b; --red: #ef4444;
+    --radius: 10px; --shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border);
+           padding: 1rem 2rem; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header span { font-size: 12px; background: #eff6ff; color: #1d4ed8;
+                padding: 3px 10px; border-radius: 20px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+  section { margin-bottom: 2rem; }
+  h2 { font-size: 15px; font-weight: 600; margin-bottom: 1rem;
+       display: flex; align-items: center; gap: 8px; }
+  h2 .num { background: var(--accent); color: white; width: 22px; height: 22px;
+            border-radius: 50%; display: inline-flex; align-items: center;
+            justify-content: center; font-size: 11px; flex-shrink: 0; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); padding: 1rem; }
+  .card .label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: .05em; margin-bottom: 6px; }
+  .card .value { font-size: 24px; font-weight: 700; }
+  .card .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .card.positive .value { color: var(--green); }
+  .card.neutral .value { color: var(--accent); }
+
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart-box { background: var(--surface); border: 1px solid var(--border);
+               border-radius: var(--radius); padding: 1.25rem; }
+  .chart-box h3 { font-size: 13px; font-weight: 600; margin-bottom: 1rem; }
+  .chart-box canvas { max-height: 220px; }
+
+  .ate-box { background: var(--surface); border: 1px solid var(--border);
+             border-radius: var(--radius); padding: 1.5rem;
+             display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+  .ate-stat { text-align: center; }
+  .ate-stat .big { font-size: 32px; font-weight: 700; color: var(--green); }
+  .ate-stat .lab { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .ate-stat .ci { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sig-badge { display: inline-block; padding: 3px 10px; border-radius: 20px;
+               font-size: 11px; font-weight: 600; margin-top: 6px; }
+  .sig { background: #d1fae5; color: #065f46; }
+  .nsig { background: #fee2e2; color: #991b1b; }
+
+  .smd-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .smd-table th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border);
+                  color: var(--muted); font-weight: 600; }
+  .smd-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  .smd-bar { height: 6px; border-radius: 3px; }
+  .smd-good { background: var(--green); }
+  .smd-warn { background: var(--amber); }
+  .smd-bad { background: var(--red); }
+
+  .uplift-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .uplift-table th { padding: 8px 12px; background: var(--bg);
+                     border-bottom: 2px solid var(--border); text-align: left;
+                     font-size: 11px; text-transform: uppercase; letter-spacing:.04em; color: var(--muted); }
+  .uplift-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .uplift-table tr:last-child td { border: none; }
+  .q-badge { width: 28px; height: 28px; border-radius: 50%;
+             display: inline-flex; align-items: center; justify-content: center;
+             font-weight: 700; font-size: 12px; color: white; }
+  .q1 { background: #ef4444; } .q2 { background: #f59e0b; }
+  .q3 { background: #3b82f6; } .q4 { background: #10b981; }
+
+  .llm-panel { background: var(--surface); border: 1px solid var(--border);
+               border-radius: var(--radius); padding: 1.5rem; }
+  .llm-panel p { line-height: 1.75; color: var(--text); margin-bottom: 1rem; }
+  .llm-panel p:last-child { margin: 0; }
+  #summary-text { white-space: pre-wrap; }
+  .gen-btn { background: var(--accent); color: white; border: none;
+             padding: 10px 20px; border-radius: 8px; cursor: pointer;
+             font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .gen-btn:hover { opacity: .9; }
+  .gen-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4);
+             border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { color: var(--muted); font-style: italic; }
+
+  @media (max-width: 700px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .ate-box { grid-template-columns: 1fr; }
+  }
+
+  /* clickable charts + maximize modal */
+  .chart-box canvas { cursor: zoom-in; transition: opacity .15s ease; }
+  .chart-box canvas:hover { opacity: .82; }
+
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(17, 24, 39, .65);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 1000;
+    padding: 2rem;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal-card {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem 1.5rem;
+    width: 92%;
+    max-width: 1100px;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    position: relative;
+  }
+  .modal-card h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-right: 40px;
+  }
+  .modal-close {
+    position: absolute;
+    top: 8px; right: 12px;
+    background: none; border: none;
+    font-size: 26px; line-height: 1;
+    color: var(--muted); cursor: pointer;
+    padding: 4px 12px; border-radius: 6px;
+  }
+  .modal-close:hover { background: var(--bg); color: var(--text); }
+  .modal-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 70vh;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+    <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+  </svg>
+  <h1>Causal Inference Dashboard</h1>
+  <span>Criteo Uplift Dataset</span>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="num">1</span> Dataset Overview</h2>
+  <div class="cards" id="overview-cards">
+    <div class="card neutral"><div class="label">Total users</div><div class="value" id="n-total">—</div></div>
+    <div class="card neutral"><div class="label">Ad shown (treated)</div><div class="value" id="n-treated">—</div><div class="sub" id="treat-rate">—</div></div>
+    <div class="card neutral"><div class="label">No ad (control)</div><div class="value" id="n-control">—</div></div>
+    <div class="card neutral"><div class="label">Visit rate</div><div class="value" id="conv-rate">—</div></div>
+    <div class="card"><div class="label">Naive ATE</div><div class="value" id="naive-ate">—</div><div class="sub">before matching</div></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">2</span> Propensity Scores & Covariate Balance</h2>
+  <div class="chart-grid">
+    <div class="chart-box">
+      <h3>Propensity score overlap (treated vs control)</h3>
+      <canvas id="ps-chart"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>SMD before vs after matching</h3>
+      <div id="smd-container"><p class="loading">Loading...</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">3</span> Average Treatment Effect (PSM-Adjusted)</h2>
+  <div class="ate-box">
+    <div class="ate-stat">
+      <div class="big" id="ate-val">—</div>
+      <div class="lab">ATE (percentage points)</div>
+      <div class="ci" id="ate-ci">95% CI: —</div>
+    </div>
+    <div class="ate-stat">
+      <div style="display:flex;justify-content:center;gap:16px;margin-bottom:8px">
+        <div><div style="font-size:20px;font-weight:700;color:#6b7280" id="ctrl-conv">—</div><div class="lab">Control</div></div>
+        <div style="font-size:20px;font-weight:700">→</div>
+        <div><div style="font-size:20px;font-weight:700;color:#10b981" id="trt-conv">—</div><div class="lab">Treated</div></div>
+      </div>
+      <div class="lab">Visit rate (matched pairs)</div>
+    </div>
+    <div class="ate-stat">
+      <div style="font-size:20px;font-weight:700" id="p-val">—</div>
+      <div class="lab">P-value</div>
+      <div id="sig-badge" class="sig-badge">—</div>
+      <div class="lab" id="n-matched" style="margin-top:8px">— matched pairs</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">4</span> Uplift Model — CATE by Segment</h2>
+  <div class="chart-grid">
+    <div class="chart-box">
+      <h3>Predicted uplift distribution</h3>
+      <canvas id="uplift-hist"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>Average uplift by quartile</h3>
+      <canvas id="uplift-bar"></canvas>
+    </div>
+  </div>
+  <div class="chart-box" style="margin-top:16px">
+    <h3>Segment targeting guide (test set, n=20% of data)</h3>
+    <table class="uplift-table" id="uplift-table">
+      <thead><tr><th>Quartile</th><th>Users</th><th>Predicted uplift</th><th>Treated visit</th><th>Control visit</th><th>Recommendation</th></tr></thead>
+      <tbody id="uplift-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="chart-grid" style="margin-top:16px">
+    <div class="chart-box">
+      <h3>Qini curve — model evaluation</h3>
+      <canvas id="qini-chart"></canvas>
+      <p style="margin-top:8px;font-size:11px;color:#6b7280">
+        Higher curve = better targeting. Random = diagonal baseline. Perfect = oracle upper bound.
+      </p>
+    </div>
+    <div class="chart-box">
+      <h3>Qini coefficient</h3>
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:48px;font-weight:700;color:#3b82f6" id="qini-score">—</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:4px">
+          Area under Qini curve (normalized)
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;text-align:left;max-width:280px;margin-left:auto;margin-right:auto">
+          The Qini coefficient measures how well the model ranks users by their
+          response to treatment. 0 = no better than random; 1 = perfect targeting.
+          Computed on a held-out 20% test set.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">5</span> LLM Business Summary</h2>
+  <div class="llm-panel">
+    <div id="summary-content">
+      <button class="gen-btn" id="gen-btn" onclick="generateSummary()">
+        <div class="spinner" id="spinner"></div>
+        Generate Summary
+      </button>
+    </div>
+    <div id="summary-text" style="display:none"></div>
+  </div>
+</section>
+
+</main>
+
+<div class="modal-backdrop" id="chart-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-card">
+    <button class="modal-close" aria-label="Close" onclick="closeModal()">&times;</button>
+    <h3 id="modal-title"></h3>
+    <div class="modal-chart-wrap"><canvas id="modal-canvas"></canvas></div>
+  </div>
+</div>
+
+<script>
+const fmt = (n, dec=1) => n?.toFixed(dec) ?? '—';
+const pct = n => n != null ? n.toFixed(1) + '%' : '—';
+const pp = n => n != null ? (n >= 0 ? '+' : '') + n.toFixed(2) + ' pp' : '—';
+const num = n => n != null ? n.toLocaleString() : '—';
+
+// store each chart's config so we can re-render it in the maximize modal
+const chartConfigs = {};
+let modalChart = null;
+
+function makeChart(canvasId, config) {
+  chartConfigs[canvasId] = config;
+  const canvas = document.getElementById(canvasId);
+  canvas.addEventListener('click', () => openModal(canvasId));
+  return new Chart(canvas, config);
+}
+
+function openModal(canvasId) {
+  const config = chartConfigs[canvasId];
+  if (!config) return;
+  const box = document.getElementById(canvasId).closest('.chart-box');
+  const titleEl = box ? box.querySelector('h3') : null;
+  document.getElementById('modal-title').textContent = titleEl ? titleEl.textContent : '';
+
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+  document.getElementById('chart-modal').classList.add('active');
+
+  // Wait for the browser to lay out the now-visible modal before Chart.js
+  // measures the canvas — otherwise it samples a 0-width container and the
+  // chart renders as a thin rectangle (especially noticeable for the Qini line chart).
+  requestAnimationFrame(() => {
+    const cloned = JSON.parse(JSON.stringify(config));
+    cloned.options = cloned.options || {};
+    cloned.options.responsive = true;
+    cloned.options.maintainAspectRatio = false;
+    modalChart = new Chart(document.getElementById('modal-canvas'), cloned);
+  });
+}
+
+function closeModal() {
+  document.getElementById('chart-modal').classList.remove('active');
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+}
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+function histogram(data, bins=20) {
+  const min = Math.min(...data), max = Math.max(...data);
+  const w = (max - min) / bins;
+  const counts = new Array(bins).fill(0);
+  data.forEach(v => {
+    let i = Math.floor((v - min) / w);
+    if (i >= bins) i = bins - 1;
+    counts[i]++;
+  });
+  const labels = counts.map((_, i) => (min + (i + 0.5) * w).toFixed(2));
+  return { labels, counts };
+}
+
+async function loadOverview() {
+  const d = await fetch('/api/overview').then(r => r.json());
+  document.getElementById('n-total').textContent = num(d.n_total);
+  document.getElementById('n-treated').textContent = num(d.n_treated);
+  document.getElementById('treat-rate').textContent = pct(d.treatment_rate * 100) + ' treated';
+  document.getElementById('n-control').textContent = num(d.n_control);
+  document.getElementById('conv-rate').textContent = pct(d.overall_conversion * 100);
+  document.getElementById('naive-ate').textContent = pp(d.naive_ate_pct);
+}
+
+async function loadPropensity() {
+  const d = await fetch('/api/propensity').then(r => r.json());
+
+  const ht = histogram(d.ps_treated, 20);
+  const hc = histogram(d.ps_control, 20);
+  makeChart('ps-chart', {
+    type: 'bar',
+    data: {
+      labels: ht.labels,
+      datasets: [
+        { label: 'Treated', data: ht.counts, backgroundColor: 'rgba(59,130,246,0.6)', borderWidth: 0 },
+        { label: 'Control', data: hc.counts, backgroundColor: 'rgba(16,185,129,0.45)', borderWidth: 0 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+      scales: {
+        x: { title: { display: true, text: 'Propensity score' }, ticks: { maxTicksLimit: 6 } },
+        y: { title: { display: true, text: 'Count' } }
+      }
+    }
+  });
+
+  // SMD table
+  const smdB = d.smd_before, smdA = d.smd_after;
+  const container = document.getElementById('smd-container');
+  const keys = Object.keys(smdB).slice(0, 8);
+  const rows = keys.map(k => {
+    const b = smdB[k] ?? 0, a = smdA?.[k] ?? 0;
+    const cls = v => v < 0.1 ? 'smd-good' : v < 0.2 ? 'smd-warn' : 'smd-bad';
+    return `<tr>
+      <td>${k}</td>
+      <td><div class="smd-bar ${cls(b)}" style="width:${Math.min(b*300,100)}%"></div></td>
+      <td>${b.toFixed(3)}</td>
+      <td><div class="smd-bar ${cls(a)}" style="width:${Math.min(a*300,100)}%"></div></td>
+      <td>${a.toFixed(3)}</td>
+    </tr>`;
+  }).join('');
+  container.innerHTML = `
+    <table class="smd-table">
+      <thead><tr><th>Feature</th><th colspan="2">Before</th><th colspan="2">After</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin-top:8px;font-size:11px;color:#6b7280">SMD < 0.10 = good balance</p>`;
+}
+
+async function loadPSM() {
+  const d = await fetch('/api/psm').then(r => r.json());
+  document.getElementById('ate-val').textContent = pp(d.ate_pct);
+  document.getElementById('ate-ci').textContent = `95% CI: ${pp(d.ci_low*100)} to ${pp(d.ci_high*100)}`;
+  document.getElementById('ctrl-conv').textContent = pct(d.control_conversion_rate * 100);
+  document.getElementById('trt-conv').textContent = pct(d.treated_conversion_rate * 100);
+  document.getElementById('p-val').textContent = d.p_value < 0.001 ? '< 0.001' : d.p_value.toFixed(3);
+  document.getElementById('n-matched').textContent = `${num(d.n_matched)} matched pairs`;
+  const badge = document.getElementById('sig-badge');
+  if (d.significant) {
+    badge.textContent = 'Statistically significant';
+    badge.className = 'sig-badge sig';
+  } else {
+    badge.textContent = 'Not significant';
+    badge.className = 'sig-badge nsig';
+  }
+}
+
+async function loadUplift() {
+  const d = await fetch('/api/uplift').then(r => r.json());
+
+  const h = histogram(d.uplift_scores, 25);
+  makeChart('uplift-hist', {
+    type: 'bar',
+    data: {
+      labels: h.labels,
+      datasets: [{ label: 'Users', data: h.counts, backgroundColor: 'rgba(139,92,246,0.6)', borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { title: { display: true, text: 'Predicted uplift' }, ticks: { maxTicksLimit: 6 } },
+        y: { title: { display: true, text: 'Count' } }
+      }
+    }
+  });
+
+  const segs = d.segment_stats;
+  const colors = ['rgba(239,68,68,0.7)','rgba(245,158,11,0.7)','rgba(59,130,246,0.7)','rgba(16,185,129,0.7)'];
+  makeChart('uplift-bar', {
+    type: 'bar',
+    data: {
+      labels: segs.map(s => s.quartile),
+      datasets: [{ label: 'Avg uplift (pp)', data: segs.map(s => s.avg_uplift_pct),
+                   backgroundColor: colors, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { title: { display: true, text: 'Avg uplift (pp)' } } }
+    }
+  });
+
+  // segment table
+  const qColors = ['q1','q2','q3','q4'];
+  document.getElementById('uplift-tbody').innerHTML = segs.map((s, i) => `
+    <tr>
+      <td><div class="q-badge ${qColors[i]}">${s.quartile}</div></td>
+      <td>${num(s.n)}</td>
+      <td style="font-weight:600;color:${s.avg_uplift_pct > 0 ? '#10b981':'#ef4444'}">${pp(s.avg_uplift_pct)}</td>
+      <td>${pct(s.treatment_conversion * 100)}</td>
+      <td>${pct(s.control_conversion * 100)}</td>
+      <td style="color:#6b7280;font-size:12px">${s.recommendation}</td>
+    </tr>`).join('');
+
+  // Qini curve
+  if (d.qini) {
+    document.getElementById('qini-score').textContent = d.qini.score.toFixed(4);
+
+    // build random baseline (diagonal from (0,0) to (max_x, max_y))
+    const lastX = d.qini.x_model[d.qini.x_model.length - 1];
+    const lastY = d.qini.y_model[d.qini.y_model.length - 1];
+    // for random model, gain is proportional to fraction targeted
+    const randomY = d.qini.x_model.map(x => (x / lastX) * lastY);
+
+    makeChart('qini-chart', {
+      type: 'line',
+      data: {
+        labels: d.qini.x_model.map(x => x.toFixed(0)),
+        datasets: [
+          {
+            label: 'Model',
+            data: d.qini.y_model,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: false,
+          },
+          {
+            label: 'Perfect',
+            data: d.qini.y_perfect,
+            borderColor: '#10b981',
+            borderDash: [4, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+          },
+          {
+            label: 'Random',
+            data: randomY,
+            borderColor: '#9ca3af',
+            borderDash: [2, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+          },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+        scales: {
+          x: { title: { display: true, text: 'Users targeted' }, ticks: { maxTicksLimit: 6 } },
+          y: { title: { display: true, text: 'Incremental visits' } }
+        }
+      }
+    });
+  }
+}
+
+async function generateSummary() {
+  const btn = document.getElementById('gen-btn');
+  const spinner = document.getElementById('spinner');
+  btn.disabled = true;
+  spinner.style.display = 'block';
+  btn.childNodes[btn.childNodes.length - 1].textContent = ' Generating...';
+
+  try {
+    const resp = await fetch('/api/summary');
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail);
+    }
+    const d = await resp.json();
+    document.getElementById('summary-content').style.display = 'none';
+    const el = document.getElementById('summary-text');
+    el.style.display = 'block';
+    el.textContent = d.summary;
+  } catch (e) {
+    btn.disabled = false;
+    spinner.style.display = 'none';
+    btn.childNodes[btn.childNodes.length - 1].textContent = ' Generate Summary';
+    alert('Error: ' + e.message);
+  }
+}
+
+// load everything on page open
+loadOverview();
+loadPropensity();
+loadPSM();
+loadUplift();
+</script>
+</body>
+</html>
